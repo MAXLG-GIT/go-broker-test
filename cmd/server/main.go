@@ -2,59 +2,95 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"gitlab.com/digineat/go-broker-test/internal/db"
+	"gitlab.com/digineat/go-broker-test/internal/model"
 	"log"
 	"net/http"
+	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
 func main() {
-	// Command line flags
-	dbPath := flag.String("db", "data.db", "path to SQLite database")
-	listenAddr := flag.String("listen", "8080", "HTTP server listen address")
+	dbPath := flag.String("db", "data.db", "path to sqlite database")
+	listen := flag.String("listen", ":8080", "HTTP listen address")
 	flag.Parse()
 
-	// Initialize database connection
-	db, err := sql.Open("sqlite3", *dbPath)
+	sqlDB, err := sql.Open("sqlite3", *dbPath)
 	if err != nil {
-		log.Fatalf("Failed to open database: %v", err)
+		log.Fatal(err)
 	}
-	defer db.Close()
-
-	// Test database connection
-	if err := db.Ping(); err != nil {
-		log.Fatalf("Failed to ping database: %v", err)
+	defer sqlDB.Close()
+	if err := db.InitDB(sqlDB); err != nil {
+		log.Fatal(err)
 	}
 
-	// Initialize HTTP server
 	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", healthHandler(sqlDB))
+	mux.HandleFunc("/trades", postTradesHandler(sqlDB))
+	mux.HandleFunc("/stats/", getStatsHandler(sqlDB))
 
-	// POST /trades endpoint
-	mux.HandleFunc("POST /trades", func(w http.ResponseWriter, r *http.Request) {
-		// TODO: Write code here
+	addr := fmt.Sprintf("%s", *listen)
+	log.Println("listening on", addr)
+	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+func healthHandler(sqlDB *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := sqlDB.Ping(); err != nil {
+			http.Error(w, "db error", http.StatusInternalServerError)
+			return
+		}
 		w.WriteHeader(http.StatusOK)
-	})
+		w.Write([]byte("OK"))
+	}
+}
 
-	// GET /stats/{acc} endpoint
-	mux.HandleFunc("GET /stats/{acc}", func(w http.ResponseWriter, r *http.Request) {
-		// TODO: Write code here
+func postTradesHandler(sqlDB *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var ti model.TradeInput
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&ti); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		if !ti.Validate() {
+			http.Error(w, "invalid data", http.StatusBadRequest)
+			return
+		}
+		if err := db.EnqueueTrade(sqlDB, ti); err != nil {
+			http.Error(w, "enqueue failed", http.StatusInternalServerError)
+			return
+		}
 		w.WriteHeader(http.StatusOK)
-	})
+	}
+}
 
-	// GET /healthz endpoint
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		// TODO: Write code here
-		// 1. Check database connection
-		// 2. Return health status
-		w.WriteHeader(http.StatusOK)
-	})
-
-	// Start server
-	serverAddr := fmt.Sprintf(":%s", *listenAddr)
-	log.Printf("Starting server on %s", serverAddr)
-	if err := http.ListenAndServe(serverAddr, mux); err != nil {
-		log.Fatalf("Server failed: %v", err)
+func getStatsHandler(sqlDB *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		acc := strings.TrimPrefix(r.URL.Path, "/stats/")
+		if acc == "" {
+			http.Error(w, "account required", http.StatusBadRequest)
+			return
+		}
+		stats, err := db.GetStats(sqlDB, acc)
+		if err != nil {
+			http.Error(w, "error fetching stats", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(stats)
 	}
 }

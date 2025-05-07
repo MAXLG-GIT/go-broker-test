@@ -2,7 +2,9 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"flag"
+	"gitlab.com/digineat/go-broker-test/internal/db"
 	"log"
 	"time"
 
@@ -10,30 +12,23 @@ import (
 )
 
 func main() {
-	// Command line flags
-	dbPath := flag.String("db", "data.db", "path to SQLite database")
-	pollInterval := flag.Duration("poll", 100*time.Millisecond, "polling interval")
+	dbPath := flag.String("db", "data.db", "path to sqlite database")
+	poll := flag.Duration("poll", 100*time.Millisecond, "poll interval")
 	flag.Parse()
 
-	// Initialize database connection
-	db, err := sql.Open("sqlite3", *dbPath)
+	sqlDB, err := sql.Open("sqlite3", *dbPath)
 	if err != nil {
-		log.Fatalf("Failed to open database: %v", err)
+		log.Fatal(err)
 	}
-	defer db.Close()
-
-	// Test database connection
-	if err := db.Ping(); err != nil {
-		log.Fatalf("Failed to ping database: %v", err)
+	defer sqlDB.Close()
+	if err = db.InitDB(sqlDB); err != nil {
+		log.Fatal(err)
 	}
 
-	log.Printf("Worker started with polling interval: %v", *pollInterval)
-
-	// Main worker loop
-	for {
-		// TODO: Write code here
-		
-		// Sleep for the specified interval
-		time.Sleep(*pollInterval)
+	log.Printf("worker polling every %v", *poll)
+	for range time.Tick(*poll) {
+		if err = db.ProcessNext(sqlDB); err != nil && !errors.Is(err, db.ErrNoTrade) {
+			log.Println("process error:", err)
+		}
 	}
 }
