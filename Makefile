@@ -4,13 +4,13 @@ vet:
 	go vet ./...
 
 test:
-	go test -race -covermode=atomic ./...
+	go test -race ./...
 
 run-server:
-	go run ./cmd/server --db data.db --listen 8080
+	go run ./cmd/server
 
 run-worker:
-	go run ./cmd/worker --db data.db --poll 100ms
+	go run ./cmd/worker
 
 docker-up:
 	docker-compose up --build --detach --wait

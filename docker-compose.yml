@@ -4,7 +4,7 @@ services:
       context: ./
       dockerfile: ./cmd/server/Dockerfile
     volumes:
-      - broker-db:/data
+      - ./data:/data
     ports:
       - "8080:8080"
 
@@ -13,8 +13,8 @@ services:
       context: ./
       dockerfile: ./cmd/worker/Dockerfile
     volumes:
-      - broker-db:/data
+      - ./data:/data
 
-volumes:
-  broker-db:
-    driver: local
+#volumes:
+#  broker-db:
+#    driver: local

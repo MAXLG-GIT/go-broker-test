@@ -34,4 +34,4 @@ RUN mkdir -p /data
 EXPOSE 8080
 
 # Run the application
-CMD ["./server", "--db", "/data/data.db", "--listen", ":8080"]
+CMD ["./server", "--db", "/data/data.db", "--listen", "8080"]
